@@ -1,0 +1,86 @@
+name: CI/CD Pipeline - DevOps API
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # 1. Integración Continua (Tests y Cobertura)
+  test-and-coverage:
+    name: Integración Continua (Tests & Cobertura)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar código fuente
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Ejecutar pruebas con reporte de cobertura
+        env:
+          NODE_ENV: test
+        run: npm run test:coverage
+
+  # 2. Compilación y Publicación en Docker Hub
+  build-and-push-docker:
+    name: Compilar y Publicar Imagen Docker
+    needs: test-and-coverage
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Descargar código fuente
+        uses: actions/checkout@v4
+
+      - name: Autenticación en Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compilar y Publicar Imagen
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_HUB_USERNAME }}/app-devops-api:latest
+            ${{ secrets.DOCKER_HUB_USERNAME }}/app-devops-api:${{ github.sha }}
+
+  # 3. Despliegue en AWS EC2 (Lo activaremos en el Módulo C)
+  deploy-to-ec2:
+    name: Despliegue Continuo en AWS EC2
+    needs: build-and-push-docker
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Desplegar mediante SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "${{ secrets.DOCKER_HUB_TOKEN }}" | docker login -u "${{ secrets.DOCKER_HUB_USERNAME }}" --password-stdin
+            docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/app-devops-api:latest
+            docker stop devops-api || true
+            docker rm devops-api || true
+            docker run -d \
+              --name devops-api \
+              --restart always \
+              -p 80:3000 \
+              ${{ secrets.DOCKER_HUB_USERNAME }}/app-devops-api:latest
+            docker image prune -f
