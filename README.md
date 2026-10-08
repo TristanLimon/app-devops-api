@@ -41,3 +41,6 @@ URL Pública: http://18.225.169.138/api/estudiantes
 
 ## Seguridad
 Ninguna credencial, token de Docker Hub, IP de servidor o llave privada SSH está expuesta en el código fuente del repositorio. Todos los datos sensibles son gestionados mediante GitHub Secrets.
+
+## Pruebas
+Primera prueba 
