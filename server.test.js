@@ -27,7 +27,7 @@ describe('Suite de Pruebas Integradoras DevOps - 26 Casos de Prueba', () => {
   test('1. POST /api/estudiantes - [ÉXITO] Inserción correcta de estudiante', async () => {
     const res = await request(app)
       .post('/api/estudiantes')
-      .send({ nombre: 'REVISION3', email: 'diego@ejemplo.com' });
+      .send({ nombre: 'REVISION4', email: 'diego@ejemplo.com' });
     expect(res.statusCode).toEqual(200);
     estudianteId = res.body.data[0].id;
   });
