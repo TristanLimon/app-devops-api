@@ -22,7 +22,7 @@ const sendResponse = (res, statusCode = 200, data = []) => {
 
 app.get('/api/estudiantes', (req, res) => {
   const rows = db.prepare('SELECT * FROM estudiantes').all();
-  sendResponse(res, 200, rows);
+  sendResponse(res, 200, []);
 });
 
 app.get('/api/estudiantes/:id', (req, res) => {
