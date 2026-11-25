@@ -209,7 +209,9 @@ jobs:
           STATUS=${PIPESTATUS[1]}
           if [ "$STATUS" != "0" ]; then
             # Publica el final del log como anotaciones para diagnóstico rápido
-            tail -n 25 deploy.log | sed -e 's/%/%25/g' -e 's/^/::error title=deploy.sh::/'
+            { grep -iE 'error|denied|no space|failed|cannot|unable|not found|refused' deploy.log | tail -n 6; \
+              grep -E 'Espacio|/dev/' deploy.log | tail -n 3; tail -n 1 deploy.log; } \
+              | sed -e 's/%/%25/g' -e 's/^/::error title=deploy.sh::/'
             exit "$STATUS"
           fi
 

@@ -47,9 +47,18 @@ HTTP_PORT=80
 EOF
 umask 022
 
+echo "==> Espacio en disco antes de limpiar"
+df -h / | tail -1
+# Libera espacio: contenedores detenidos, imágenes sin uso y caché de build (los volúmenes se conservan)
+docker system prune -af >/dev/null 2>&1 || true
+sudo journalctl --vacuum-size=100M >/dev/null 2>&1 || true
+sudo apt-get clean >/dev/null 2>&1 || true
+echo "==> Espacio en disco después de limpiar"
+df -h / | tail -1
+
 echo "==> Descargando imágenes"
 echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USER" --password-stdin
-docker compose pull
+docker compose pull -q
 
 # Contenedor de la versión anterior (Parcial 1) ocupaba el puerto 80
 docker stop devops-api >/dev/null 2>&1 || true
