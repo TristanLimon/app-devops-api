@@ -77,6 +77,8 @@ docker compose pull -q
 
 echo "==> Levantando contenedores"
 docker compose up -d --remove-orphans
+# Reinicia los servicios que leen archivos montados (configuración nueva)
+docker compose restart temperature otel-collector nginx
 
 echo "==> Esperando a OpenObserve"
 for i in $(seq 1 40); do
@@ -84,6 +86,7 @@ for i in $(seq 1 40); do
   sleep 3
 done
 
+sleep 20  # deja que el sensor de temperatura reporte con la configuración nueva
 echo "==> Configurando dashboards y alertas"
 if command -v python3 >/dev/null 2>&1; then
   O2_URL=http://127.0.0.1/openobserve O2_USER="$O2_USER" O2_PASSWORD="$O2_PASSWORD" python3 setup_openobserve.py \

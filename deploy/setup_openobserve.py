@@ -198,13 +198,20 @@ def ensure_streams():
 
 def temperature_panels():
     """Gráfica de temperatura si el host expone sensores; si no, tabla con el estado del sensor."""
-    _, body = call("GET", f"/api/{ORG}/streams/infra_temperature/schema?type=logs")
-    fields = {f.get("name") for f in body.get("schema", [])} if isinstance(body, dict) else set()
+    import time
+    now = int(time.time() * 1_000_000)
+    _, body = call("POST", f"/api/{ORG}/_search?type=logs", {"query": {
+        "sql": 'SELECT count(*) AS n FROM "infra_temperature" WHERE sensor_disponible = true '
+               'AND temperature_celsius > -40 AND temperature_celsius < 150',
+        "start_time": now - 3600 * 1_000_000, "end_time": now, "from": 0, "size": 1}})
+    hits = body.get("hits", []) if isinstance(body, dict) else []
+    fields = {"temperature_celsius"} if hits and (hits[0].get("n") or 0) > 0 else set()
     if "temperature_celsius" in fields:
         return [
             panel("Temperatura de sensores (°C)",
                   'SELECT histogram(_timestamp) AS x_axis_1, sensor AS breakdown_1, avg(temperature_celsius) AS y_axis_1 '
-                  'FROM "infra_temperature" WHERE sensor_disponible = true GROUP BY x_axis_1, breakdown_1 ORDER BY x_axis_1',
+                  'FROM "infra_temperature" WHERE sensor_disponible = true AND temperature_celsius > -40 '
+                  'AND temperature_celsius < 150 GROUP BY x_axis_1, breakdown_1 ORDER BY x_axis_1',
                   stream="infra_temperature", stream_type="logs", breakdown="breakdown_1", unit="celsius",
                   x_pos=0, y_pos=27),
             panel("Lecturas de sensores térmicos",
@@ -215,11 +222,12 @@ def temperature_panels():
         ]
     print("Aviso: el host no expone sensores de temperatura; se agrega panel de estado")
     return [panel("Temperatura: estado de los sensores térmicos",
-                  'SELECT _timestamp AS x_axis_1, host, sensor, sensor_disponible, mensaje FROM "infra_temperature" '
+                  'SELECT _timestamp AS x_axis_1, host, sensor, sensor_disponible, lectura_cruda_celsius, mensaje '
+                  'FROM "infra_temperature" '
                   'ORDER BY _timestamp DESC LIMIT 20',
                   kind="table", stream="infra_temperature", stream_type="logs",
-                  y=("host", "sensor", "sensor_disponible", "mensaje"), w=24, x_pos=0, y_pos=27,
-                  description="Las instancias EC2 virtualizadas no exponen sensores térmicos al sistema operativo")]
+                  y=("host", "sensor", "sensor_disponible", "lectura_cruda_celsius", "mensaje"), w=24, x_pos=0, y_pos=27,
+                  description="El sensor nvme de EC2 reporta 0 K (lectura inválida del controlador virtual de EBS)")]
 
 
 def upsert_dashboards():

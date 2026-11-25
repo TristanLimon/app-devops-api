@@ -15,7 +15,11 @@ while true; do
     raw=$(cat "$zone/temp" 2>/dev/null) || continue
     type=$(cat "$zone/type" 2>/dev/null || echo "$(basename "$zone")")
     celsius=$(awk "BEGIN { printf \"%.1f\", $raw / 1000 }")
-    RECORDS="$RECORDS{\"host\":\"$HOST_NAME\",\"sensor\":\"$type\",\"temperature_celsius\":$celsius,\"sensor_disponible\":true},"
+    if awk "BEGIN { exit !($celsius > -40 && $celsius < 150) }"; then
+      RECORDS="$RECORDS{\"host\":\"$HOST_NAME\",\"sensor\":\"$type\",\"temperature_celsius\":$celsius,\"sensor_disponible\":true},"
+    else
+      RECORDS="$RECORDS{\"host\":\"$HOST_NAME\",\"sensor\":\"$type\",\"lectura_cruda_celsius\":$celsius,\"sensor_disponible\":false,\"mensaje\":\"Lectura invalida del sensor virtual (fuera de rango fisico)\"},"
+    fi
   done
   for input in "$SYS"/class/hwmon/hwmon*/temp*_input; do
     [ -r "$input" ] || continue
@@ -23,7 +27,13 @@ while true; do
     dir=$(dirname "$input")
     name=$(cat "$dir/name" 2>/dev/null || echo hwmon)
     celsius=$(awk "BEGIN { printf \"%.1f\", $raw / 1000 }")
-    RECORDS="$RECORDS{\"host\":\"$HOST_NAME\",\"sensor\":\"$name-$(basename "$input" _input)\",\"temperature_celsius\":$celsius,\"sensor_disponible\":true},"
+    sensor="$name-$(basename "$input" _input)"
+    if awk "BEGIN { exit !($celsius > -40 && $celsius < 150) }"; then
+      RECORDS="$RECORDS{\"host\":\"$HOST_NAME\",\"sensor\":\"$sensor\",\"temperature_celsius\":$celsius,\"sensor_disponible\":true},"
+    else
+      # Lectura fuera de rango físico (p. ej. 0 K del controlador NVMe virtual de EBS)
+      RECORDS="$RECORDS{\"host\":\"$HOST_NAME\",\"sensor\":\"$sensor\",\"lectura_cruda_celsius\":$celsius,\"sensor_disponible\":false,\"mensaje\":\"Lectura invalida del sensor virtual (fuera de rango fisico)\"},"
+    fi
   done
 
   if [ -z "$RECORDS" ]; then
