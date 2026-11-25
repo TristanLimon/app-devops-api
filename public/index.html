@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iniciar sesión · Sistema de Gestión</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <h1>Sistema de Gestión</h1>
+    <p class="subtitle">Usuarios y productos</p>
+    <form id="login-form" data-testid="login-form" novalidate>
+      <label for="email">Correo electrónico</label>
+      <input id="email" name="email" type="email" autocomplete="username" required data-testid="login-email">
+      <label for="password">Contraseña</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required data-testid="login-password">
+      <p id="login-error" class="error" role="alert" data-testid="login-error" hidden></p>
+      <button type="submit" data-testid="login-submit">Entrar</button>
+    </form>
+  </main>
+  <script type="module" src="/login.js"></script>
+</body>
+</html>

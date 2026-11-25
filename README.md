@@ -1,46 +1,81 @@
-# Proyecto DevOps - API REST con CI/CD, Docker y AWS
+# Proyecto Parcial 2 — CI/CD, Pruebas Automatizadas y Observabilidad
 
-Este repositorio contiene una API REST desarrollada en Node.js, implementada bajo prácticas profesionales de DevOps que incluyen pruebas automatizadas con cobertura, contenedorización con Docker, integración continua mediante GitHub Actions y despliegue continuo en un servidor remoto en AWS EC2.
+Sistema web con **Login, CRUD de usuarios y CRUD de productos** (Node.js + Express + SQLite),
+desplegado automáticamente en **AWS EC2** con **GitHub Actions** solo cuando pasan las pruebas
+(**Vitest** y **Playwright**), e instrumentado con **OpenTelemetry** hacia **OpenObserve**.
 
-## Tecnologías y Herramientas Utilizadas
-- Backend: Node.js
-- Pruebas y Cobertura: Vitest con umbral de cobertura estricto
-- Contenedorización: Docker y Docker Hub
-- Integración y Despliegue Continuo: GitHub Actions
-- Infraestructura: AWS EC2 Ubuntu Server expuesto en el puerto 80
+| Recurso | URL |
+|---|---|
+| Aplicación | http://18.225.169.138/ |
+| OpenObserve | http://18.225.169.138/openobserve/ |
+| Repositorio | https://github.com/TristanLimon/app-devops-api |
 
-## Arquitectura del Pipeline
-El flujo de trabajo automatizado se activa en cada push a la rama main y consta de tres etapas:
-1. Integración Continua: Se descargan dependencias, se ejecutan las pruebas automatizadas con Vitest y se valida el porcentaje de cobertura.
-2. Compilación y Publicación: Se empaqueta la aplicación en una imagen Docker optimizada, etiquetándola con latest y con el hash único del commit para publicarla en Docker Hub.
-3. Despliegue Continuo: Utilizando claves SSH seguras resguardadas en GitHub Secrets, el pipeline se conecta al servidor de AWS, descarga la nueva imagen, detiene el contenedor anterior y despliega la versión actualizada en el puerto 80.
+## Arquitectura
 
-## Comandos Locales
-Para clonar y ejecutar este proyecto de forma local en tu máquina, sigue estos pasos:
+```
+GitHub (push a main)
+  └─ GitHub Actions
+       ├─ Pruebas backend (Vitest + Supertest, cobertura)
+       ├─ Pruebas E2E frontend/backend (Playwright)
+       ├─ Registro del resultado en OpenObserve (HTTP/JSON, stream cicd_events)
+       ├─ Build y push de la imagen a Docker Hub   ← solo si TODAS las pruebas pasan
+       ├─ Despliegue por SSH en EC2 (docker compose) ← solo si TODAS las pruebas pasan
+       └─ Registro del evento de despliegue en OpenObserve (o "bloqueado")
 
-Clonar el repositorio:
-git clone <url-de-tu-repositorio>
-cd <nombre-del-repositorio>
+AWS EC2 (docker compose, puerto 80)
+  nginx ─┬─ /              → app (Express, OpenTelemetry SDK)
+         └─ /openobserve/  → OpenObserve
+  app ──OTLP──> otel-collector ──OTLP/HTTP──> OpenObserve
+  otel-collector (host_metrics) → CPU, RAM, red, disco, carga
+  temperature → sensores térmicos del host (si existen)
+```
 
-Instalar dependencias:
+## Observabilidad (OpenObserve)
+
+| Señal | Origen | Stream |
+|---|---|---|
+| Logs estructurados y excepciones | App (OTLP) | `app_logs` |
+| Métricas por endpoint (latencia, peticiones, errores, statusCode) | App (OTLP) | `app_http_*` |
+| Trazas distribuidas (HTTP → Express → SQLite) | App (OTLP) | `default` (traces) |
+| CPU, RAM, red, disco | Collector `host_metrics` | `system_*` |
+| Temperatura | Sidecar `temperature` | `infra_temperature` |
+| Ejecuciones del pipeline y despliegues | GitHub Actions | `cicd_events` |
+
+Dashboards creados automáticamente por `deploy/setup_openobserve.py`:
+*Aplicación - Endpoints (RF-04)*, *Infraestructura EC2 (RF-05)*, *Pipeline CI/CD (RF-03)*.
+Alertas: `errores_5xx_app`, `latencia_alta_app`, `pipeline_fallido`, `cpu_alta_ec2`, `memoria_alta_ec2`
+(destino: webhook interno `/api/alerts/webhook`, que registra la alerta en los logs).
+
+## Secretos de GitHub Actions
+
+`DOCKER_HUB_USERNAME`, `DOCKER_HUB_TOKEN`, `EC2_HOST`, `EC2_USERNAME`, `EC2_SSH_KEY`,
+`O2_USER`, `O2_PASSWORD`.
+
+## Comandos locales
+
+```bash
 npm install
+npm run dev              # app en http://localhost:3000
+npm run test:coverage    # pruebas backend (Vitest)
+npx playwright install chromium
+npm run test:e2e         # pruebas E2E (Playwright)
+```
 
-Ejecutar la aplicación en modo desarrollo:
-npm run dev
+Stack completo local (app + OpenObserve + collector):
 
-Ejecutar las pruebas automatizadas y reporte de cobertura:
-npm run test:coverage
+```bash
+docker build -t app-devops-api:local .
+cd deploy && docker compose --env-file .env.local up -d
+```
 
-Construir y probar el contenedor Docker localmente:
-docker build -t app-devops-api .
-docker run -p 3000:3000 app-devops-api
+## Endpoints principales
 
-## Enlace a Producción
-La API se encuentra desplegada y operando en vivo en la nube de AWS:
-URL Pública: http://18.225.169.138/api/estudiantes
-
-## Seguridad
-Ninguna credencial, token de Docker Hub, IP de servidor o llave privada SSH está expuesta en el código fuente del repositorio. Todos los datos sensibles son gestionados mediante GitHub Secrets.
-
-## Pruebas
-Primera prueba 
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/api/auth/login` | Login (devuelve JWT) |
+| GET | `/api/auth/me` | Usuario autenticado |
+| GET/POST | `/api/users` | Listar / crear usuarios |
+| GET/PUT/DELETE | `/api/users/:id` | Consultar / editar / eliminar usuario |
+| GET/POST | `/api/products` | Listar / crear productos |
+| GET/PUT/DELETE | `/api/products/:id` | Consultar / editar / eliminar producto |
+| GET | `/api/health` | Estado de la aplicación |

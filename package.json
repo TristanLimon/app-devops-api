@@ -4,15 +4,29 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --import ./telemetry.js server.js",
     "test": "NODE_ENV=test vitest run --pool=forks",
-    "test:coverage": "NODE_ENV=test vitest run --coverage --pool=forks"
+    "test:coverage": "NODE_ENV=test vitest run --coverage --pool=forks",
+    "test:e2e": "playwright test",
+    "dev": "node server.js"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.83.1",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.301.2",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.301.2",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.301.2",
+    "@opentelemetry/resources": "^3.1.1",
+    "@opentelemetry/sdk-logs": "^3.1.1",
+    "@opentelemetry/sdk-metrics": "^3.1.1",
+    "@opentelemetry/sdk-node": "^0.301.2",
+    "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.8.0",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@vitest/coverage-istanbul": "^2.1.9",
     "@vitest/coverage-v8": "^2.1.8",
     "supertest": "^7.0.0",

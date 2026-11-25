@@ -5,6 +5,15 @@ Dockerfile
 .git
 .github
 coverage
+test-results
+playwright-report
+e2e
+e2e-data
+tests
+server.test.js
+deploy
+docs
 *.db
 *.db-journal
 *.db-wal
+*.db-shm

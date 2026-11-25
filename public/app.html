@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel · Sistema de Gestión</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <strong>Sistema de Gestión</strong>
+    <nav>
+      <button class="tab active" data-tab="users" data-testid="tab-users">Usuarios</button>
+      <button class="tab" data-tab="products" data-testid="tab-products">Productos</button>
+    </nav>
+    <div class="session">
+      <span id="current-user" data-testid="current-user"></span>
+      <button id="logout" class="secondary" data-testid="logout">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <main>
+    <p id="flash" class="flash" role="status" data-testid="flash" hidden></p>
+
+    <section id="users" class="panel" data-testid="users-section">
+      <div class="panel-head">
+        <h2>Usuarios</h2>
+        <button id="new-user" data-testid="new-user">Nuevo usuario</button>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Nombre</th><th>Email</th><th>Rol</th><th>Acciones</th></tr></thead>
+        <tbody id="users-body" data-testid="users-table"></tbody>
+      </table>
+    </section>
+
+    <section id="products" class="panel" data-testid="products-section" hidden>
+      <div class="panel-head">
+        <h2>Productos</h2>
+        <button id="new-product" data-testid="new-product">Nuevo producto</button>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Nombre</th><th>Descripción</th><th>Precio</th><th>Stock</th><th>Acciones</th></tr></thead>
+        <tbody id="products-body" data-testid="products-table"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <dialog id="user-dialog" data-testid="user-dialog">
+    <form id="user-form" method="dialog" novalidate>
+      <h3 id="user-dialog-title">Nuevo usuario</h3>
+      <input type="hidden" name="id">
+      <label>Nombre <input name="nombre" required data-testid="user-nombre"></label>
+      <label>Email <input name="email" type="email" required data-testid="user-email"></label>
+      <label>Contraseña <input name="password" type="password" data-testid="user-password" placeholder="Mínimo 6 caracteres"></label>
+      <label>Rol
+        <select name="rol" data-testid="user-rol">
+          <option value="usuario">usuario</option>
+          <option value="admin">admin</option>
+        </select>
+      </label>
+      <p class="error" data-testid="user-error" hidden></p>
+      <div class="actions">
+        <button type="button" class="secondary" data-close>Cancelar</button>
+        <button type="submit" data-testid="user-save">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="product-dialog" data-testid="product-dialog">
+    <form id="product-form" method="dialog" novalidate>
+      <h3 id="product-dialog-title">Nuevo producto</h3>
+      <input type="hidden" name="id">
+      <label>Nombre <input name="nombre" required data-testid="product-nombre"></label>
+      <label>Descripción <input name="descripcion" data-testid="product-descripcion"></label>
+      <label>Precio <input name="precio" type="number" step="0.01" min="0" required data-testid="product-precio"></label>
+      <label>Stock <input name="stock" type="number" step="1" min="0" data-testid="product-stock"></label>
+      <p class="error" data-testid="product-error" hidden></p>
+      <div class="actions">
+        <button type="button" class="secondary" data-close>Cancelar</button>
+        <button type="submit" data-testid="product-save">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

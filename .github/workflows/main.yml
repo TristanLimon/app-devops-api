@@ -5,13 +5,18 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: 22
 
 jobs:
-  # 1. Integración Continua (Tests y Cobertura)
-  test-and-coverage:
-    name: Integración Continua (Tests & Cobertura)
+  # ============================================================
+  # 1. Pruebas de Backend (Vitest + Supertest con cobertura)
+  # ============================================================
+  backend-tests:
+    name: Pruebas Backend (Vitest)
     runs-on: ubuntu-latest
-
     steps:
       - name: Descargar código fuente
         uses: actions/checkout@v4
@@ -19,24 +24,117 @@ jobs:
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: Instalar dependencias
         run: npm ci
 
-      - name: Ejecutar pruebas con reporte de cobertura
-        env:
-          NODE_ENV: test
+      - name: Ejecutar pruebas con cobertura
         run: npm run test:coverage
 
-  # 2. Compilación y Publicación en Docker Hub
+      - name: Publicar reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: |
+            coverage/
+            test-results/backend-junit.xml
+          if-no-files-found: ignore
+
+  # ============================================================
+  # 2. Pruebas E2E de Frontend y Backend (Playwright)
+  # ============================================================
+  e2e-tests:
+    name: Pruebas E2E (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código fuente
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Instalar navegador de Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Ejecutar suite Playwright
+        run: npm run test:e2e
+
+      - name: Publicar reporte de Playwright
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+
+  # ============================================================
+  # 3. Registro del resultado de las pruebas en OpenObserve (RF-03)
+  #    Se ejecuta siempre, aunque las pruebas fallen.
+  # ============================================================
+  report-tests:
+    name: Registrar resultado de pruebas en OpenObserve
+    needs: [backend-tests, e2e-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar evento de pruebas
+        env:
+          O2_URL: http://${{ secrets.EC2_HOST }}/openobserve
+          O2_USER: ${{ secrets.O2_USER }}
+          O2_PASSWORD: ${{ secrets.O2_PASSWORD }}
+          BACKEND: ${{ needs.backend-tests.result }}
+          E2E: ${{ needs.e2e-tests.result }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [ "$BACKEND" = "success" ] && [ "$E2E" = "success" ]; then
+            STATUS=success; DEPLOY="permitido"
+          else
+            STATUS=failure; DEPLOY="bloqueado"
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            DEPLOY="no_aplica"
+          fi
+          echo "Resultado: backend=$BACKEND e2e=$E2E -> $STATUS (despliegue $DEPLOY)"
+          PAYLOAD=$(jq -n \
+            --arg event_type "test_run" \
+            --arg status "$STATUS" \
+            --arg backend_tests "$BACKEND" \
+            --arg e2e_tests "$E2E" \
+            --arg deploy "$DEPLOY" \
+            --arg commit "${{ github.sha }}" \
+            --arg commit_message "$COMMIT_MSG" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg event "${{ github.event_name }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg repository "${{ github.repository }}" \
+            '[{event_type:$event_type,status:$status,backend_tests:$backend_tests,e2e_tests:$e2e_tests,deploy:$deploy,commit:$commit,commit_message:$commit_message,branch:$branch,actor:$actor,event:$event,run_id:$run_id,run_url:$run_url,repository:$repository}]')
+          curl -sS --max-time 20 -u "$O2_USER:$O2_PASSWORD" \
+            -H "Content-Type: application/json" \
+            -X POST "$O2_URL/api/default/cicd_events/_json" \
+            -d "$PAYLOAD" || echo "::warning::No se pudo enviar el evento a OpenObserve"
+
+  # ============================================================
+  # 4. Compilación y publicación de la imagen Docker
+  #    Solo si TODAS las pruebas pasaron.
+  # ============================================================
   build-and-push-docker:
     name: Compilar y Publicar Imagen Docker
-    needs: test-and-coverage
+    needs: [backend-tests, e2e-tests]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     steps:
       - name: Descargar código fuente
         uses: actions/checkout@v4
@@ -55,32 +153,99 @@ jobs:
         with:
           context: .
           push: true
+          build-args: APP_VERSION=${{ github.sha }}
           tags: |
             ${{ secrets.DOCKER_HUB_USERNAME }}/app-devops-api:latest
             ${{ secrets.DOCKER_HUB_USERNAME }}/app-devops-api:${{ github.sha }}
 
-  # 3. Despliegue en AWS EC2 (Lo activaremos en el Módulo C)
+  # ============================================================
+  # 5. Despliegue en AWS EC2 (solo se alcanza si las pruebas pasaron)
+  # ============================================================
   deploy-to-ec2:
     name: Despliegue Continuo en AWS EC2
     needs: build-and-push-docker
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     steps:
-      - name: Desplegar mediante SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Descargar código fuente
+        uses: actions/checkout@v4
+
+      - name: Copiar configuración del stack al servidor
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          source: "deploy/*"
+          target: "~/devops"
+          strip_components: 1
+
+      - name: Desplegar contenedores mediante SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_HUB_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+          O2_USER: ${{ secrets.O2_USER }}
+          O2_PASSWORD: ${{ secrets.O2_PASSWORD }}
+          APP_VERSION: ${{ github.sha }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 20m
+          envs: DOCKER_USER,DOCKER_TOKEN,O2_USER,O2_PASSWORD,APP_VERSION
           script: |
-            echo "${{ secrets.DOCKER_HUB_TOKEN }}" | docker login -u "${{ secrets.DOCKER_HUB_USERNAME }}" --password-stdin
-            docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/app-devops-api:latest
-            docker stop devops-api || true
-            docker rm devops-api || true
-            docker run -d \
-              --name devops-api \
-              --restart always \
-              -p 80:3000 \
-              ${{ secrets.DOCKER_HUB_USERNAME }}/app-devops-api:latest
-            docker image prune -f
+            set -e
+            cd ~/devops
+            export DOCKER_USER DOCKER_TOKEN O2_USER O2_PASSWORD APP_VERSION
+            bash ./deploy.sh
+
+      - name: Verificar aplicación desplegada
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf --max-time 5 "http://${{ secrets.EC2_HOST }}/api/health"; then echo; echo "Aplicación en línea"; exit 0; fi
+            sleep 5
+          done
+          echo "La aplicación no respondió"; exit 1
+
+  # ============================================================
+  # 6. Registro del evento de despliegue en OpenObserve (RF-03)
+  # ============================================================
+  report-deploy:
+    name: Registrar despliegue en OpenObserve
+    needs: [backend-tests, e2e-tests, build-and-push-docker, deploy-to-ec2]
+    if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar evento de despliegue
+        env:
+          O2_URL: http://${{ secrets.EC2_HOST }}/openobserve
+          O2_USER: ${{ secrets.O2_USER }}
+          O2_PASSWORD: ${{ secrets.O2_PASSWORD }}
+          DEPLOY_RESULT: ${{ needs.deploy-to-ec2.result }}
+          BUILD_RESULT: ${{ needs.build-and-push-docker.result }}
+        run: |
+          case "$DEPLOY_RESULT" in
+            success) STATUS=success; DETAIL="Contenedores actualizados en EC2" ;;
+            skipped) STATUS=blocked; DETAIL="Despliegue bloqueado: las pruebas fallaron, no se abrió conexión SSH a EC2" ;;
+            *)       STATUS=failure; DETAIL="El despliegue falló" ;;
+          esac
+          PAYLOAD=$(jq -n \
+            --arg event_type "deployment" \
+            --arg status "$STATUS" \
+            --arg detail "$DETAIL" \
+            --arg build "$BUILD_RESULT" \
+            --arg deploy "$DEPLOY_RESULT" \
+            --arg target "AWS EC2" \
+            --arg image "app-devops-api:${{ github.sha }}" \
+            --arg commit "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '[{event_type:$event_type,status:$status,detail:$detail,build:$build,deploy:$deploy,target:$target,image:$image,commit:$commit,branch:$branch,actor:$actor,run_id:$run_id,run_url:$run_url}]')
+          echo "$PAYLOAD"
+          curl -sS --max-time 20 -u "$O2_USER:$O2_PASSWORD" \
+            -H "Content-Type: application/json" \
+            -X POST "$O2_URL/api/default/cicd_events/_json" \
+            -d "$PAYLOAD" || echo "::warning::No se pudo enviar el evento a OpenObserve"
