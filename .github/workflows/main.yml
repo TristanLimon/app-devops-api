@@ -185,8 +185,18 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USERNAME }}
         run: |
-          ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" 'mkdir -p ~/devops'
-          scp -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=no deploy/* "$EC2_USER@$EC2_HOST:~/devops/"
+          set +e
+          for intento in 1 2 3; do
+            OUT=$( { ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=no -o ConnectTimeout=20 "$EC2_USER@$EC2_HOST" \
+                     'mkdir -p ~/devops && df -h / | tail -1' \
+                   && scp -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=no -o ConnectTimeout=20 deploy/* "$EC2_USER@$EC2_HOST:~/devops/"; } 2>&1 )
+            STATUS=$?
+            echo "$OUT"
+            [ "$STATUS" = "0" ] && exit 0
+            echo "Intento $intento falló, reintentando..."; sleep 15
+          done
+          echo "$OUT" | tail -n 5 | sed -e 's/%/%25/g' -e 's/^/::error title=scp::/'
+          exit 1
 
       - name: Desplegar contenedores mediante SSH
         env:
