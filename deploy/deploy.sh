@@ -12,10 +12,16 @@ done
 
 echo "==> Preparando servidor"
 
-# Memoria swap (OpenObserve + app + collector en una instancia pequeña)
-if ! swapon --show | grep -q '/swapfile'; then
-  echo "Creando swap de 2G"
-  sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+# Memoria swap de 1G si la instancia tiene menos de 2 GB de RAM (el disco es pequeño)
+MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+if [ -f /swapfile ] && [ "$(stat -c %s /swapfile)" -gt 1100000000 ]; then
+  echo "Reduciendo swap a 1G para liberar disco"
+  sudo swapoff /swapfile || true
+  sudo rm -f /swapfile
+fi
+if [ "$MEM_MB" -lt 2000 ] && ! swapon --show | grep -q '/swapfile'; then
+  echo "Creando swap de 1G (RAM: ${MEM_MB} MB)"
+  sudo fallocate -l 1G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=1024
   sudo chmod 600 /swapfile
   sudo mkswap /swapfile
   sudo swapon /swapfile
@@ -49,20 +55,25 @@ umask 022
 
 echo "==> Espacio en disco antes de limpiar"
 df -h / | tail -1
+# El contenedor de la versión anterior (Parcial 1) se detiene para poder borrar su imagen
+docker stop devops-api >/dev/null 2>&1 || true
+docker rm devops-api >/dev/null 2>&1 || true
 # Libera espacio: contenedores detenidos, imágenes sin uso y caché de build (los volúmenes se conservan)
 docker system prune -af >/dev/null 2>&1 || true
 sudo journalctl --vacuum-size=100M >/dev/null 2>&1 || true
 sudo apt-get clean >/dev/null 2>&1 || true
+# Revisiones de snap deshabilitadas ocupan cientos de MB
+if command -v snap >/dev/null 2>&1; then
+  snap list --all 2>/dev/null | awk '/disabled/{print $1, $3}' | while read -r name rev; do
+    sudo snap remove "$name" --revision="$rev" >/dev/null 2>&1 || true
+  done
+fi
 echo "==> Espacio en disco después de limpiar"
 df -h / | tail -1
 
 echo "==> Descargando imágenes"
 echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USER" --password-stdin
 docker compose pull -q
-
-# Contenedor de la versión anterior (Parcial 1) ocupaba el puerto 80
-docker stop devops-api >/dev/null 2>&1 || true
-docker rm devops-api >/dev/null 2>&1 || true
 
 echo "==> Levantando contenedores"
 docker compose up -d --remove-orphans
@@ -85,4 +96,5 @@ fi
 
 docker image prune -f >/dev/null
 docker compose ps
+df -h / | tail -1
 echo "==> Despliegue completado (versión ${APP_VERSION})"

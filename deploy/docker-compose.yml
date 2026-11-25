@@ -40,11 +40,13 @@ services:
       ZO_TELEMETRY: "false"
       # Permite que las alertas lleguen al webhook interno de la app
       ZO_SSRF_ALLOWED_HOSTS: app
+      # Disco pequeño en EC2: conservar solo 3 días de datos
+      ZO_COMPACT_DATA_RETENTION_DAYS: "3"
     volumes:
       - o2-data:/data
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.165.0
+    image: otel/opentelemetry-collector:0.165.0
     container_name: devops-otel-collector
     restart: always
     command: ["--config=/etc/otelcol/config.yaml"]
