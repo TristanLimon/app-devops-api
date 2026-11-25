@@ -187,7 +187,8 @@ app.delete('/api/products/:id', requireAuth, (req, res) => {
 // ==========================================
 
 app.get('/api/estudiantes', (req, res) => {
-  sendResponse(res, 200, q.all('SELECT * FROM estudiantes'));
+  const rows = q.all('SELECT * FROM estudiantes');
+  sendResponse(res, 200, []); // ERROR INTENCIONAL: no devuelve los registros
 });
 
 app.get('/api/estudiantes/:id', (req, res) => {
