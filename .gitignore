@@ -9,3 +9,5 @@ e2e-data
 
 # entorno local de pruebas del stack
 deploy/.env*
+__pycache__/
+*.pyc
