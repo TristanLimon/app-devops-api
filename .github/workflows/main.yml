@@ -170,35 +170,48 @@ jobs:
       - name: Descargar código fuente
         uses: actions/checkout@v4
 
+      - name: Configurar llave SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/ec2.pem
+          chmod 600 ~/.ssh/ec2.pem
+          ssh-keyscan -T 15 "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
       - name: Copiar configuración del stack al servidor
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "deploy/*"
-          target: "~/devops"
-          strip_components: 1
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USERNAME }}
+        run: |
+          ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" 'mkdir -p ~/devops'
+          scp -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=no deploy/* "$EC2_USER@$EC2_HOST:~/devops/"
 
       - name: Desplegar contenedores mediante SSH
-        uses: appleboy/ssh-action@v1.0.3
         env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USERNAME }}
           DOCKER_USER: ${{ secrets.DOCKER_HUB_USERNAME }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
           O2_USER: ${{ secrets.O2_USER }}
           O2_PASSWORD: ${{ secrets.O2_PASSWORD }}
           APP_VERSION: ${{ github.sha }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          command_timeout: 20m
-          envs: DOCKER_USER,DOCKER_TOKEN,O2_USER,O2_PASSWORD,APP_VERSION
-          script: |
-            set -e
-            cd ~/devops
-            export DOCKER_USER DOCKER_TOKEN O2_USER O2_PASSWORD APP_VERSION
-            bash ./deploy.sh
+        run: |
+          set +e
+          # Las variables viajan por stdin (no quedan en la línea de comandos del servidor)
+          {
+            printf 'export DOCKER_USER=%q DOCKER_TOKEN=%q O2_USER=%q O2_PASSWORD=%q APP_VERSION=%q\n' \
+              "$DOCKER_USER" "$DOCKER_TOKEN" "$O2_USER" "$O2_PASSWORD" "$APP_VERSION"
+            echo 'cd ~/devops && bash ./deploy.sh'
+          } | ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=no -o ServerAliveInterval=30 \
+                "$EC2_USER@$EC2_HOST" 'bash -s' 2>&1 | tee deploy.log
+          STATUS=${PIPESTATUS[1]}
+          if [ "$STATUS" != "0" ]; then
+            # Publica el final del log como anotaciones para diagnóstico rápido
+            tail -n 25 deploy.log | sed -e 's/%/%25/g' -e 's/^/::error title=deploy.sh::/'
+            exit "$STATUS"
+          fi
 
       - name: Verificar aplicación desplegada
         run: |
